@@ -1,40 +1,51 @@
-require 'thread'
-
-class Communication
-  def initialize
-    @mutex = Mutex.new # Мьютекс для управления доступом к критической секции
-    @semaphore = Mutex.new # Семафор для контроля очередности потоков
-    @connected = false  # Переменная, указывающая, установлено ли соединение
+require 'thread' # Подключение библиотеки для работы с потоками
+$people = [] # Глобальная переменная массива всех людей
+class Person # Класс человека
+  attr_reader :name # Уровень доступа имени только на чтение
+  attr_accessor :active, :mutex # Уровеь доступа состояния активности и мьютеса на чтение и изменение
+  def initialize(name, active=false) # Конструктор класса человека
+    @name = name # Имя человека
+    @active = active # Знает ли человек, что Полуэкт вернулся с работы
+    @mutex = Mutex.new # Мьютекс для блокировки человека
   end
-
-  def call(person, id = nil)
-    @semaphore.synchronize do # Начало критической секции для очередности потоков
-      identifier = id ? "#{person} ##{id}" : person # Формируем идентификатор потока с номером (если есть)
-      puts "#{identifier} пытается зайти в критическую секцию"
-      @mutex.synchronize do # Начало критической секции для проверки и установки соединения
-        if @connected
-          puts "#{identifier} вышел из критической секции, так как соединение уже установлено"
-        else
-          @connected = true
-          puts "#{identifier} зашел в критическую секцию и установил соединение"
-          sleep(rand(1..3)) # Имитируем время разговора
-          puts "#{identifier} вышел из критической секции"
-          @connected = false # Освобождаем соединение
+  def call(other) # Функция создания звонка
+    Thread.new do # Запуск нового потока
+      if @mutex.try_lock # Попытка заблокировать мьютекс текущего человека
+        if other.mutex.try_lock # Попытка заблокировать мьютекс другого человека
+          puts "#{@name} звонит #{other.name}" # Вывести в логи кто кому звонит
+          sleep(rand(1..3)) # Иммитация звонка
+          if @active || other.active # Если кто-то из тех кто звонит знает о том, что Полуэкт вернулся
+            @active = true # Человек, который звонит узнаёт о Полуэкте
+            other.active = true # Человек, которому звонят узнаёт о Полуэкте
+            puts "#{@name} и #{other.name} знают, что Полуэкт вернулся с работы"  # Сообщить о том, что они узнали в логи
+            if @name == "Полуэкт" || other.name == "Полуэкт" # Проверка был ли в звонке Полуэкт
+              $people.delete_at(6) # Полуэкт идёт спать
+              puts "Полуэкт пошёл спать" # Соощить об этом к логи
+            end
+          end
+          other.mutex.unlock # Разблокировка мьютекса другого человека
+          puts "#{@name} завершил звонок с #{other.name}" # Сообщить в логи, что звонок завершился
         end
+        @mutex.unlock # Разблокировка мьютекса текущего человека
       end
     end
   end
 end
-
-communication = Communication.new
-
-threads = []
-
-# Создаем потоки для каждого участника
-threads << Thread.new { communication.call("Полуэкт") }
-2.times { |i| threads << Thread.new { communication.call("Бабушка", i + 1) } }
-threads << Thread.new { communication.call("Мама") }
-3.times { |i| threads << Thread.new { communication.call("Девушка", i + 1) } }
-
-# Дожидаемся завершения всех потоков
-threads.each(&:join)
+# Заполнение массива людей
+$people << Person.new("Мама")
+$people << Person.new("Бабушка 1")
+$people << Person.new("Бабушка 2")
+$people << Person.new("Девушка 1")
+$people << Person.new("Девушка 2")
+$people << Person.new("Девушка 3")
+$people << Person.new("Полуэкт")
+$people[6].active = true # Установка значения знания о том, что Полуэкт вернулся самому Полуэкту
+loop do # Бесконечный цикл телефоной линии
+  caller = $people.sample # Выбрать любого пользователя из массива для звонящего
+  receiver = $people.sample # Выбрать любого пользователя из массива для того, кому звонят
+  if caller != receiver # Провека на звонок самому себе
+    caller.call(receiver) # Начала звонка и сохранения потока звонка в массив потоков
+  end
+  break if $people.all?(&:active) # Если все люди узнали о том, что Полуэкт вернулся домой, завершить программу
+end
+puts "Все участники знают, что Полуэкт вернулся с работы!"
